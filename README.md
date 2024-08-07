@@ -15,7 +15,7 @@ cargo install ore-cli
 To build the codebase from scratch, checkout the repo and use cargo to build:
 
 ```sh
-cargo build --release
+ cargo build --release
 ```
 
 ## Help
