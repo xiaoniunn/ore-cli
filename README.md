@@ -35,3 +35,6 @@ ore mine --threads 18 --priority-fee 610000 --nandu 20
 --开发不易  
 
 捐赠sol地址： FyzVe531Atmptw94swtse48wV26mXyE285CeXTe5JyKf
+
+
+注：引用了 https://github.com/a3165458/ore-cli 仓库的低费率版本  在此基础上魔改

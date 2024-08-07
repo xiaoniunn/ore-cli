@@ -1,48 +1,50 @@
 use std::{sync::Arc,sync::Mutex,time::Instant}; // 导入必要的模块，用于并发和计时
-use colored::*; // 导入colored，用于控制台输出格式化
-use drillx::{equix::{self}, Hash, Solution}; // 导入drillx中的equix模块，及相关的Hash和Solution结构
-use ore_api::{consts::{BUS_ADDRESSES, BUS_COUNT, EPOCH_DURATION}, state::{Config, Proof}}; // 导入常量和状态管理
-use rand::Rng; // 导入随机数生成器特征
-use solana_program::pubkey::Pubkey; // 导入Pubkey，用于Solana程序的地址表示
-use solana_rpc_client::spinner; // 导入spinner，用于控制台中的进度指示
-use solana_sdk::signer::Signer; // 导入Signer，用于加密操作
 
-use crate::{ // 从当前crate导入必要的组件
-    args::MineArgs, // 矿工操作的参数
-    send_and_confirm::ComputeBudget, // 交易的计算预算管理
-    utils::{amount_u64_to_string, get_clock, get_config, get_proof_with_authority, proof_pubkey}, // 工具函数
-    Miner, // 导入Miner结构体
+use colored::*;
+use drillx::{
+    equix::{self},
+    Hash, Solution,
+};
+use ore_api::{
+    consts::{BUS_ADDRESSES, BUS_COUNT, EPOCH_DURATION},
+    state::{Config, Proof},
+};
+use rand::Rng;
+use solana_program::pubkey::Pubkey;
+use solana_rpc_client::spinner;
+use solana_sdk::signer::Signer;
+
+use crate::{
+    args::MineArgs,
+    send_and_confirm::ComputeBudget,
+    utils::{amount_u64_to_string, get_clock, get_config, get_proof_with_authority, proof_pubkey},
+    Miner,
 };
 
-// Miner结构体的实现块
 impl Miner {
-    // 异步方法：矿工进行挖矿操作
     pub async fn mine(&self, args: MineArgs) {
-        // 注册，如果需要的话。
-        let signer = self.signer(); // 获取签名者
-        self.open().await; // 打开矿工
+        // Register, if needed.
+        let signer = self.signer();
+        self.open().await;
 
-        // 检查线程数量
-        self.check_num_cores(args.threads); // 检查可用的线程数是否合适
+        // Check num threads
+        self.check_num_cores(args.threads);
 
-        // 开始挖矿循环
+        // Start mining loop
         loop {
-            // 获取证明
-            let proof = get_proof_with_authority(&self.rpc_client, signer.pubkey()).await; // 获取带有权威的证明
+            // Fetch proof
+            let proof = get_proof_with_authority(&self.rpc_client, signer.pubkey()).await;
             println!(
                 "\nStake balance: {} ORE",
-                amount_u64_to_string(proof.balance) // 打印当前的ORE余额
+                amount_u64_to_string(proof.balance)
             );
-			println!("{:?}", args);
-			
-            // 计算截止时间
-            let cutoff_time = self.get_cutoff(proof, args.buffer_time).await; // 获取截止时间
+println!("{:?}", args);
+            // Calc cutoff time
+            let cutoff_time = self.get_cutoff(proof, args.buffer_time).await;
 
-            // 运行drillx
-            let config = get_config(&self.rpc_client).await; // 获取当前配置
-			
-			//let min_difficulty_c = 14;
-			println!("{:?}", config);
+            // Run drillx
+            let config = get_config(&self.rpc_client).await;
+println!("{:?}", config);			
 			
 			
             let solution = Self::find_hash_par(
@@ -51,30 +53,28 @@ impl Miner {
                 args.threads,
                 args.nandu as u32,
             )
-            .await; // 并行查找哈希
+            .await;
 
-			//println!("{:?}",solution);
-
-            // 提交最难的哈希
-            let mut compute_budget = 500_000; // 初始化计算预算
-            let mut ixs = vec![ore_api::instruction::auth(proof_pubkey(signer.pubkey()))]; // 创建交易指令
+            // Submit most difficult hash
+            let mut compute_budget = 500_000;
+            let mut ixs = vec![ore_api::instruction::auth(proof_pubkey(signer.pubkey()))];
             if self.should_reset(config).await && rand::thread_rng().gen_range(0..100).eq(&0) {
-                compute_budget += 100_000; // 增加计算预算
-                ixs.push(ore_api::instruction::reset(signer.pubkey())); // 添加重置指令
+                compute_budget += 100_000;
+                ixs.push(ore_api::instruction::reset(signer.pubkey()));
             }
             ixs.push(ore_api::instruction::mine(
                 signer.pubkey(),
                 signer.pubkey(),
-                find_bus(), // 查找并返回bus地址
-                solution, // 提交找到的解决方案
+                find_bus(),
+                solution,
             ));
-            self.send_and_confirm(&ixs, ComputeBudget::Fixed(compute_budget), false) // 发送并确认交易
+            self.send_and_confirm(&ixs, ComputeBudget::Fixed(compute_budget), false)
                 .await
-                .ok(); // 忽略结果
+                .ok();
         }
     }
 
-    // 异步方法：并行查找哈希
+        // 异步方法：并行查找哈希
   async fn find_hash_par(
     proof: Proof,
     cutoff_time: u64,
@@ -131,33 +131,8 @@ impl Miner {
 								return (best_nonce, best_difficulty, best_hash);
 							} 
 							
-                           // if difficulty.gt(&best_difficulty) { // 如果难度更高
-                           //     best_nonce = nonce; // 更新最佳nonce
-                           //     best_difficulty = difficulty; // 更新最佳难度
-                            //    best_hash = hx; // 更新最佳哈希
-                           // }
-							
                         }
 						
-						/*
-						
-						if best_difficulty > min_difficulty {
-							
-							
-							
-							
-							let mut solution_found = found_solution.lock().unwrap();
-                            *solution_found = true;
-                            println!("Thread {} found a solution: {:?}", i, best_difficulty);
-                            break;
-						} else if i == 0 { // 如果是第一个线程
-							progress_bar.set_message(format!(
-								"Mining... ({} sec remaining)", // 更新进度条消息
-								0,
-							));
-						}
-*/
-                        // 增加nonce
                         nonce += 1; // 增加nonce
                     }
 					(best_nonce, best_difficulty, best_hash) 
@@ -192,13 +167,12 @@ impl Miner {
     Solution::new(best_hash.d, best_nonce.to_le_bytes()) // 返回新的解决方案
 }
 
-    // 检查可用的核心数量
     pub fn check_num_cores(&self, threads: u64) {
-        // 检查线程数
-        let num_cores = num_cpus::get() as u64; // 获取可用核心数
-        if threads.gt(&num_cores) { // 如果线程数超过可用核心数
+        // Check num threads
+        let num_cores = num_cpus::get() as u64;
+        if threads.gt(&num_cores) {
             println!(
-                "{} Number of threads ({}) exceeds available cores ({})", // 打印警告信息
+                "{} Number of threads ({}) exceeds available cores ({})",
                 "WARNING".bold().yellow(),
                 threads,
                 num_cores
@@ -206,33 +180,28 @@ impl Miner {
         }
     }
 
-    // 异步方法：检查是否需要重置
     async fn should_reset(&self, config: Config) -> bool {
-        let clock = get_clock(&self.rpc_client).await; // 获取当前时钟
-		
-		
-		
+        let clock = get_clock(&self.rpc_client).await;
         config
             .last_reset_at
-            .saturating_add(150) // 计算下次重置的时间
-            .saturating_sub(5) // 设置缓冲
-            .le(&clock.unix_timestamp) // 检查是否时间到了
+            .saturating_add(EPOCH_DURATION)
+            .saturating_sub(5) // Buffer
+            .le(&clock.unix_timestamp)
     }
 
-    // 异步方法：获取截止时间
     async fn get_cutoff(&self, proof: Proof, buffer_time: u64) -> u64 {
-        let clock = get_clock(&self.rpc_client).await; // 获取当前时钟
+        let clock = get_clock(&self.rpc_client).await;
         proof
             .last_hash_at
-            .saturating_add(150) // 添加60秒的时间
-            .saturating_sub(buffer_time as i64) // 减去缓冲时间
-            .saturating_sub(clock.unix_timestamp) // 减去当前时间
-            .max(0) as u64 // 确保不小于0
+            .saturating_add(60)
+            .saturating_sub(buffer_time as i64)
+            .saturating_sub(clock.unix_timestamp)
+            .max(0) as u64
     }
 }
 
-// TODO: 选择更好的策略（避免耗尽bus）
+// TODO Pick a better strategy (avoid draining bus)
 fn find_bus() -> Pubkey {
-    let i = rand::thread_rng().gen_range(0..BUS_COUNT); // 生成随机数，以选择bus
-    BUS_ADDRESSES[i] // 返回对应的bus地址
+    let i = rand::thread_rng().gen_range(0..BUS_COUNT);
+    BUS_ADDRESSES[i]
 }
