@@ -1,4 +1,5 @@
-use std::{sync::Arc,sync::Mutex,time::Instant}; // 导入必要的模块，用于并发和计时
+use std::sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}};
+use std::thread;
 
 use colored::*;
 use drillx::{
@@ -75,96 +76,68 @@ println!("{:?}", config);
     }
 
         // 异步方法：并行查找哈希
-  async fn find_hash_par(
+async fn find_hash_par(
     proof: Proof,
     cutoff_time: u64,
     threads: u64,
-     min_difficulty: u32,
+    min_difficulty: u32,
 ) -> Solution {
-    // 为每个线程分配工作
-    let progress_bar = Arc::new(spinner::new_progress_bar()); // 创建进度条
-    progress_bar.set_message("Mining..."); // 设置消息为"挖矿中..."
-	
-  // 使用Arc和Mutex来共享退出状态
-    let found_solution = Arc::new(Mutex::new(false)); // 共享的退出状态
+    let progress_bar = Arc::new(spinner::new_progress_bar());
+    progress_bar.set_message("Mining...");
+
+    let found_solution = Arc::new(AtomicBool::new(false));
     let handles: Vec<_> = (0..threads)
         .map(|i| {
-            std::thread::spawn({
-                let proof = proof.clone(); // 克隆证明
-                let progress_bar = progress_bar.clone(); // 克隆进度条
-				
-				let found_solution = found_solution.clone(); // 克隆共享状态
+            let proof = proof.clone();
+            let progress_bar = progress_bar.clone();
+            let found_solution = found_solution.clone();
 
-				
-                let mut memory = equix::SolverMemory::new(); // 创建新的求解器内存
-                move || {
-                    let mut nonce = u64::MAX.saturating_div(threads).saturating_mul(i); // 计算初始nonce
-                    let mut best_nonce = nonce; // 初始化最佳nonce
-                    let mut best_difficulty = 0; // 初始化最佳难度
-                    let mut best_hash = Hash::default(); // 初始化最佳哈希
-                    loop {
-						
-						// 检查共享状态
-						if *found_solution.lock().unwrap() {
-							break; // 如果找到了解，则退出循环
-						}
-						
-						 // 创建哈希
-                        if let Ok(hx) = drillx::hash_with_memory(
-                            &mut memory,
-                            &proof.challenge,
-                            &nonce.to_le_bytes(), // 使用nonce生成哈希
-                        ) {
-                            let difficulty = hx.difficulty(); // 获取哈希的难度
-							if best_difficulty >10 {
-								println!("{:?}",best_difficulty);
-							}
-							
-							if difficulty > min_difficulty {
-								best_difficulty=difficulty;
-								best_nonce = nonce;
-								best_hash = hx; 
-								
-								let mut solution_found = found_solution.lock().unwrap();
-								*solution_found = true;
-								println!("mini Success , Thread {} found a difficulty: {:?}", i, best_difficulty);
-								return (best_nonce, best_difficulty, best_hash);
-							} 
-							
+            let mut memory = equix::SolverMemory::new();
+            thread::spawn(move || {
+                let mut nonce = i; // 每个线程从不同的nonce开始
+                let mut best_difficulty = 0;
+                let mut best_hash = Hash::default();
+
+                while !found_solution.load(Ordering::Relaxed) {
+                    if let Ok(hx) = drillx::hash_with_memory(
+                        &mut memory,
+                        &proof.challenge,
+                        &nonce.to_le_bytes(),
+                    ) {
+                        let difficulty = hx.difficulty();
+                        if difficulty > min_difficulty {
+                            found_solution.store(true, Ordering::Relaxed);
+                            println!("Success! Thread {} found a difficulty: {:?}", i, difficulty);
+                            return (nonce, difficulty, hx);
                         }
-						
-                        nonce += 1; // 增加nonce
                     }
-					(best_nonce, best_difficulty, best_hash) 
+                    nonce += threads; // 递增nonce，确保每个线程处理不同的nonce
                 }
+                (0, 0, Hash::default())
             })
         })
         .collect();
 
-
-	//println!("{:?}","线程结束");
-    // 等待线程完成并返回最佳nonce
-    let mut best_nonce = 0; // 初始化最佳nonce
-    let mut best_difficulty = 0; // 初始化最佳难度
-    let mut best_hash = Hash::default(); // 初始化最佳哈希
+    let mut best_nonce = 0;
+    let mut best_difficulty = 0;
+    let mut best_hash = Hash::default();
     for h in handles {
         if let Ok((nonce, difficulty, hash)) = h.join() {
             if difficulty > best_difficulty {
-                best_difficulty = difficulty; // 更新最佳难度
-                best_nonce = nonce; // 更新最佳nonce
-                best_hash = hash; // 更新最佳哈希
+                best_difficulty = difficulty;
+                best_nonce = nonce;
+                best_hash = hash;
             }
         }
     }
 
-    // 更新日志
     progress_bar.finish_with_message(format!(
-        "Best hash: {} (difficulty: {})", // 打印最佳哈希和难度
+        "Best hash: {} (difficulty: {})",
         bs58::encode(best_hash.h).into_string(),
         best_difficulty
     ));
 
-    Solution::new(best_hash.d, best_nonce.to_le_bytes()) // 返回新的解决方案
+    Solution::new(best_hash.d, best_nonce.to_le_bytes())
 }
 
     pub fn check_num_cores(&self, threads: u64) {
