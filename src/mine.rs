@@ -94,7 +94,8 @@ async fn find_hash_par(
 
             let mut memory = equix::SolverMemory::new();
             thread::spawn(move || {
-                let mut nonce = i; // 每个线程从不同的nonce开始
+				let mut nonce = u64::MAX.saturating_div(threads).saturating_mul(i); // 计算初始nonce
+               // let mut nonce = i; // 每个线程从不同的nonce开始
                 let mut best_difficulty = 0;
                 let mut best_hash = Hash::default();
 
