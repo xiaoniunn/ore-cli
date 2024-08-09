@@ -40,9 +40,18 @@ ore mine --threads 18 --priority-fee 610000 --nandu 20
 注：引用了 https://github.com/a3165458/ore-cli 仓库的低费率版本  在此基础上魔改
 
 
+## linux windows教程
+
+可以自己使用命令  cargo build --release 编译为ore.exe程序，使用很简单
+
+1.下载编译后的 ore.exe
+2.创建1.json文件存放秘钥的，放在同文件夹
+
+然后执行挖矿命令
+ore.exe mine --threads 192 --rpc https://node.onekey.so/sol --keypair 1.json --priority-fee 130000 --nandu 20
 
 
-linux 使用教程
+## linux 使用教程
 
 git clone https://github.com/xiaoniunn/ore-cli
 
